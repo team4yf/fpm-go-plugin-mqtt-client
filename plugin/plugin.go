@@ -2,11 +2,12 @@
 package plugin
 
 import (
+	MQTT "github.com/eclipse/paho.mqtt.golang"
+	"github.com/google/uuid"
 	"github.com/team4yf/yf-fpm-server-go/fpm"
 	"github.com/team4yf/yf-fpm-server-go/pkg/log"
-	"github.com/google/uuid"
-	MQTT "github.com/eclipse/paho.mqtt.golang"
 )
+
 //PubSub 定义接口
 // 主要包含发布和订阅
 type pubSub interface {
@@ -66,32 +67,40 @@ func init() {
 		}
 		mqttConfig := app.GetConfig("mqtt").(map[string]interface{})
 		log.Debugf("Mqtt Config : %+v", mqttConfig)
-		
+
 		setting := &mqttSetting{
 			Options:  &MQTT.ClientOptions{},
 			Retained: false,
 			Qos:      (byte)(0),
 		}
+		clientID := "iot-device-" + GenUUID()
 		setting.Options.AddBroker("tcp://" + mqttConfig["host"].(string))
-		setting.Options.SetClientID("iot-device-" + GenUUID())
+		setting.Options.SetClientID(clientID)
 		setting.Options.SetUsername(mqttConfig["user"].(string))
 		setting.Options.SetPassword(mqttConfig["pass"].(string))
-	
+
 		mq := newMQTTPubSub(setting)
-		log.Debugf("mqtt client inited!")
+		app.Publish("#mqtt/connected", map[string]interface{}{
+			"topic":   "mqtt/connected",
+			"payload": clientID,
+		})
 
 		bizModule := make(fpm.BizModule, 0)
 		bizModule["subscribe"] = func(param *fpm.BizParam) (data interface{}, err error) {
-			topics:= (*param)["topics"].(string)
-			mq.Subscribe(topics, func(topic, payload interface{}){
-				app.Publish(topic.(string), payload)
+			topics := (*param)["topics"].(string)
+			mq.Subscribe(topics, func(topic, payload interface{}) {
+				messsage := map[string]interface{}{
+					"topic":   topic,
+					"payload": payload,
+				}
+				app.Publish("#mqtt/receive", messsage)
 			})
 			data = 1
 			return
 		}
 		bizModule["publish"] = func(param *fpm.BizParam) (data interface{}, err error) {
-			topic:= (*param)["topic"].(string)
-			payload:= (*param)["payload"].([]byte)
+			topic := (*param)["topic"].(string)
+			payload := (*param)["payload"].([]byte)
 			mq.Publish(topic, payload)
 			data = 1
 			return
