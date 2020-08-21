@@ -19,6 +19,10 @@ type mqttSetting struct {
 	Options  *MQTT.ClientOptions
 	Qos      byte
 	Retained bool
+	Host     string
+	User     string
+	Pass     string
+	ClientID string
 }
 
 //mqttPS 定义MQTT 的结构体
@@ -65,36 +69,49 @@ func init() {
 		if !app.HasConfig("mqtt") {
 			panic("mqtt config node required")
 		}
-		mqttConfig := app.GetConfig("mqtt").(map[string]interface{})
-		log.Debugf("Mqtt Config : %+v", mqttConfig)
-
 		setting := &mqttSetting{
-			Options:  &MQTT.ClientOptions{},
-			Retained: false,
-			Qos:      (byte)(0),
+			Options: &MQTT.ClientOptions{},
 		}
-		clientID := "iot-device-" + GenUUID()
-		setting.Options.AddBroker("tcp://" + mqttConfig["host"].(string))
+		if err := app.FetchConfig("mqtt", &setting); err != nil {
+			panic(err)
+		}
+
+		log.Debugf("Mqtt Config : %+v", setting)
+		clientID := setting.ClientID + GenUUID()
+		setting.Options.AddBroker("tcp://" + setting.Host)
 		setting.Options.SetClientID(clientID)
-		setting.Options.SetUsername(mqttConfig["user"].(string))
-		setting.Options.SetPassword(mqttConfig["pass"].(string))
+		setting.Options.SetUsername(setting.User)
+		setting.Options.SetPassword(setting.Pass)
 
 		mq := newMQTTPubSub(setting)
 		app.Publish("#mqtt/connected", map[string]interface{}{
 			"topic":   "mqtt/connected",
 			"payload": clientID,
 		})
-
+		handler := func(topic, payload interface{}) {
+			messsage := map[string]interface{}{
+				"topic":   topic,
+				"payload": payload,
+			}
+			app.Publish("#mqtt/receive", messsage)
+		}
 		bizModule := make(fpm.BizModule, 0)
+
 		bizModule["subscribe"] = func(param *fpm.BizParam) (data interface{}, err error) {
-			topics := (*param)["topics"].(string)
-			mq.Subscribe(topics, func(topic, payload interface{}) {
-				messsage := map[string]interface{}{
-					"topic":   topic,
-					"payload": payload,
+			topics := make([]string, 0)
+			switch (*param)["topics"].(type) {
+			case string:
+				topics = append(topics, (*param)["topics"].(string))
+			case []string:
+				topics = (*param)["topics"].([]string)
+			case []interface{}:
+				for _, t := range (*param)["topics"].([]interface{}) {
+					topics = append(topics, t.(string))
 				}
-				app.Publish("#mqtt/receive", messsage)
-			})
+			}
+			for _, t := range topics {
+				mq.Subscribe(t, handler)
+			}
 			data = 1
 			return
 		}

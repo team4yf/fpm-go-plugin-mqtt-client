@@ -15,6 +15,10 @@ func main() {
 		"topics": "$s2d/+/ipc/demo/execute",
 	})
 
+	app.Execute("mqttclient.subscribe", &fpm.BizParam{
+		"topics": []string{"$s2d/+/ipc/demo/execute1", "$s2d/+/ipc/demo/execute2"},
+	})
+
 	app.Subscribe("#mqtt/receive", func(topic string, data interface{}) {
 		//data 通常是 byte[] 类型，可以转成 string 或者 map
 		body := data.(map[string]interface{})
@@ -27,6 +31,6 @@ func main() {
 		"payload": ([]byte)(`{"test":1}`),
 	})
 
-	app.Run(":9999")
+	app.Run()
 
 }
