@@ -7,9 +7,9 @@ mqtt client 的插件
 ```json
 {
     "mqtt": {
-        "host": "yourhost:1883",
-        "pass": "*****",
-        "user": "*****"
+        "host": "localhost:11883",
+        "clientID": "abc-",
+        "qos": 1
     }
 }
 

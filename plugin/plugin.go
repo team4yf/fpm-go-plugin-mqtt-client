@@ -3,9 +3,8 @@ package plugin
 
 import (
 	MQTT "github.com/eclipse/paho.mqtt.golang"
-	"github.com/google/uuid"
+	"github.com/team4yf/fpm-go-pkg/utils"
 	"github.com/team4yf/yf-fpm-server-go/fpm"
-	"github.com/team4yf/yf-fpm-server-go/pkg/log"
 )
 
 //PubSub 定义接口
@@ -58,11 +57,6 @@ func (m *mqttPS) Subscribe(topic string, handler func(topic, payload interface{}
 	})
 }
 
-// GenUUID 生成随机字符串，eg: 76d27e8c-a80e-48c8-ad20-e5562e0f67e4
-func GenUUID() string {
-	u, _ := uuid.NewRandom()
-	return u.String()
-}
 func init() {
 	fpm.Register(func(app *fpm.Fpm) {
 		// 配置 MQTT 客户端
@@ -70,24 +64,18 @@ func init() {
 			panic("mqtt config node required")
 		}
 		setting := &mqttSetting{
-			Options: &MQTT.ClientOptions{},
+			Options: MQTT.NewClientOptions(),
 		}
 		if err := app.FetchConfig("mqtt", &setting); err != nil {
 			panic(err)
 		}
 
-		log.Debugf("Mqtt Config : %+v", setting)
-		clientID := setting.ClientID + GenUUID()
-		setting.Options.AddBroker("tcp://" + setting.Host)
-		setting.Options.SetClientID(clientID)
-		setting.Options.SetUsername(setting.User)
-		setting.Options.SetPassword(setting.Pass)
+		subTopics := make([]string, 0)
 
-		mq := newMQTTPubSub(setting)
-		app.Publish("#mqtt/connected", map[string]interface{}{
-			"topic":   "mqtt/connected",
-			"payload": clientID,
-		})
+		var mq pubSub
+
+		app.Logger.Debugf("Mqtt Config : %v", setting)
+
 		handler := func(topic, payload interface{}) {
 			messsage := map[string]interface{}{
 				"topic":   topic,
@@ -95,6 +83,30 @@ func init() {
 			}
 			app.Publish("#mqtt/receive", messsage)
 		}
+
+		clientID := setting.ClientID + utils.GenUUID()
+		setting.Options.AddBroker("tcp://" + setting.Host)
+		setting.Options.SetClientID(clientID)
+		if setting.User != "" {
+			setting.Options.SetUsername(setting.User)
+		}
+		if setting.Pass != "" {
+			setting.Options.SetPassword(setting.Pass)
+		}
+
+		setting.Options.SetCleanSession(false)
+		setting.Options.SetOnConnectHandler(func(MQTT.Client) {
+			for _, t := range subTopics {
+				mq.Subscribe(t, handler)
+			}
+		})
+
+		mq = newMQTTPubSub(setting)
+		app.Publish("#mqtt/connected", map[string]interface{}{
+			"topic":   "mqtt/connected",
+			"payload": clientID,
+		})
+
 		bizModule := make(fpm.BizModule, 0)
 
 		bizModule["subscribe"] = func(param *fpm.BizParam) (data interface{}, err error) {
@@ -110,6 +122,7 @@ func init() {
 				}
 			}
 			for _, t := range topics {
+				subTopics = append(subTopics, t)
 				mq.Subscribe(t, handler)
 			}
 			data = 1
